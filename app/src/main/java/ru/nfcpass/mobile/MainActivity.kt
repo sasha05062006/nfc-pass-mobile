@@ -1,6 +1,5 @@
 package ru.nfcpass.mobile
 
-import android.app.Activity
 import android.content.Context
 import android.nfc.NfcAdapter
 import android.nfc.Tag
@@ -16,15 +15,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -48,9 +51,13 @@ data class ScanRecord(
 class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private var nfcAdapter: NfcAdapter? = null
     private val records = mutableStateListOf<ScanRecord>()
-    private var scanMessage by mutableStateOf("Нажми «Начать сканирование» и приложи карту к задней стороне телефона.")
+    private var scanMessage by mutableStateOf("Нажми «Сканировать» и приложи метку к задней стороне телефона.")
     private var scanning by mutableStateOf(false)
     private var lastScan by mutableStateOf<ScanRecord?>(null)
+    private var selectedRecord by mutableStateOf<ScanRecord?>(null)
+    private var currentPage by mutableStateOf("cards")
+    private var renameTarget by mutableStateOf<ScanRecord?>(null)
+    private var renameText by mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,75 +66,145 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text("NFC Pass Mobile", style = MaterialTheme.typography.headlineMedium)
-                        Text("Диагностика NFC-карт • Samsung Galaxy")
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Состояние NFC", style = MaterialTheme.typography.titleMedium)
-                                val status = when {
-                                    nfcAdapter == null -> "На устройстве нет NFC"
-                                    nfcAdapter?.isEnabled == true -> "NFC включён"
-                                    else -> "NFC выключен — включи его в настройках телефона"
-                                }
-                                Text(status)
-                                Text(scanMessage)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(
-                                        onClick = { startScan() },
-                                        enabled = nfcAdapter != null && nfcAdapter?.isEnabled == true && !scanning
-                                    ) { Text("Начать сканирование") }
-                                    OutlinedButton(
-                                        onClick = { stopScan() },
-                                        enabled = scanning
-                                    ) { Text("Стоп") }
-                                }
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier.width(116.dp).fillMaxSize().padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("NFC PASS", style = MaterialTheme.typography.titleMedium)
+                            Divider()
+                            if (currentPage == "cards") {
+                                Button(onClick = { currentPage = "cards" }, modifier = Modifier.fillMaxWidth()) { Text("Мои карты") }
+                            } else {
+                                OutlinedButton(onClick = { currentPage = "cards" }, modifier = Modifier.fillMaxWidth()) { Text("Мои карты") }
                             }
+                            if (currentPage == "scan") {
+                                Button(onClick = { currentPage = "scan" }, modifier = Modifier.fillMaxWidth()) { Text("Сканировать") }
+                            } else {
+                                OutlinedButton(onClick = { currentPage = "scan" }, modifier = Modifier.fillMaxWidth()) { Text("Сканировать") }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Сохранено: ${records.size}", style = MaterialTheme.typography.bodySmall)
                         }
 
-                        lastScan?.let { record ->
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Последняя карта", style = MaterialTheme.typography.titleLarge)
-                                    Text("UID: ${record.uid.ifBlank { "не предоставлен" }}")
-                                    Text("Технологии: ${record.technologies}")
-                                    Text("NDEF: ${record.ndef}")
-                                    Text("Совместимость: чтение обнаружено; возможность прохода не подтверждена.")
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxSize().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("NFC Pass Mobile", style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                if (nfcAdapter?.isEnabled == true) "NFC включён" else if (nfcAdapter == null) "NFC не поддерживается" else "Включи NFC в настройках телефона",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (currentPage == "scan") {
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Добавить карту", style = MaterialTheme.typography.titleLarge)
+                                        Text("1. Нажми сканирование. 2. Приложи метку. 3. Проверь данные и задай своё название.")
+                                        Text(scanMessage)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(onClick = { startScan() }, enabled = nfcAdapter?.isEnabled == true && !scanning) { Text("Сканировать") }
+                                            OutlinedButton(onClick = { stopScan() }, enabled = scanning) { Text("Стоп") }
+                                        }
+                                    }
                                 }
-                            }
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("История сканирований", style = MaterialTheme.typography.titleMedium)
-                            OutlinedButton(onClick = { records.clear(); saveRecords(); lastScan = null }) {
-                                Text("Очистить")
-                            }
-                        }
-                        if (records.isEmpty()) {
-                            Text("Пока нет сохранённых сканирований.")
-                        } else {
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(records.reversed()) { record ->
+                                lastScan?.let { record ->
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Text("Найденная метка", style = MaterialTheme.typography.titleMedium)
+                                            Text("UID: ${record.uid.ifBlank { "не предоставлен" }}")
+                                            Text("Технологии: ${record.technologies}")
+                                            Text("NDEF: ${record.ndef}")
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(onClick = {
+                                                    renameTarget = records.firstOrNull { it.uid == record.uid && it.technologies == record.technologies } ?: record
+                                                    renameText = renameTarget?.title ?: "NFC-карта"
+                                                }) { Text("Задать имя") }
+                                                OutlinedButton(onClick = { selectedRecord = record; currentPage = "cards" }) { Text("Выбрать") }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text("Мои карты", style = MaterialTheme.typography.titleLarge)
+                                Text("Выбери сохранённую метку, чтобы открыть её сведения.")
+                                if (records.isEmpty()) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("Пока пусто")
+                                            Text("Отсканируй NFC-метку, проверь её данные и сохрани под удобным именем.")
+                                            Button(onClick = { currentPage = "scan" }) { Text("Добавить карту") }
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(records.reversed()) { record ->
+                                            Card(modifier = Modifier.fillMaxWidth()) {
+                                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Text(record.title, style = MaterialTheme.typography.titleMedium)
+                                                    Text("UID: ${record.uid.ifBlank { "не предоставлен" }}", style = MaterialTheme.typography.bodySmall)
+                                                    Text(record.technologies, style = MaterialTheme.typography.bodySmall)
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Button(onClick = { selectedRecord = record }) { Text(if (selectedRecord == record) "Выбрана ✓" else "Выбрать") }
+                                                        OutlinedButton(onClick = { renameTarget = record; renameText = record.title }) { Text("Имя") }
+                                                        TextButton(onClick = {
+                                                            records.remove(record)
+                                                            if (selectedRecord == record) selectedRecord = null
+                                                            saveRecords()
+                                                        }) { Text("Удалить") }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                selectedRecord?.let { record ->
                                     Card(modifier = Modifier.fillMaxWidth()) {
                                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(record.title, style = MaterialTheme.typography.titleSmall)
-                                            Text("UID: ${record.uid.ifBlank { "не предоставлен" }}")
-                                            Text(record.technologies)
-                                            Text(SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(record.timestamp)))
+                                            Text("Выбрана: ${record.title}", style = MaterialTheme.typography.titleMedium)
+                                            Text("UID: ${record.uid}")
+                                            Text("NDEF: ${record.ndef}")
+                                            Text("Это сохранённая запись, а не эмуляция физической карты.")
                                         }
                                     }
                                 }
                             }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Важно: приложение сохраняет сведения о метках, но не копирует защищённые пропуска. Телефон не читает RFID 125 кГц и не может универсально эмулировать любую карту.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Важно: обнаружение UID не означает, что пропуск можно скопировать. NFC телефона обычно не читает RFID-карты 125 кГц; защищённые пропуска требуют официальной поддержки.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
                     }
+                }
+
+                renameTarget?.let { target ->
+                    AlertDialog(
+                        onDismissRequest = { renameTarget = null },
+                        title = { Text("Название карты") },
+                        text = {
+                            OutlinedTextField(
+                                value = renameText,
+                                onValueChange = { renameText = it },
+                                label = { Text("Например, «Офис»") },
+                                singleLine = true
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                val newTitle = renameText.trim().ifBlank { "NFC-карта" }
+                                val index = records.indexOfFirst { it.uid == target.uid && it.technologies == target.technologies }
+                                if (index >= 0) {
+                                    records[index] = records[index].copy(title = newTitle)
+                                    if (selectedRecord?.uid == target.uid) selectedRecord = records[index]
+                                    if (lastScan?.uid == target.uid) lastScan = records[index]
+                                    saveRecords()
+                                }
+                                renameTarget = null
+                            }) { Text("Сохранить") }
+                        },
+                        dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Отмена") } }
+                    )
                 }
             }
         }
@@ -155,7 +232,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 null
             )
             scanning = true
-            scanMessage = "Ожидаю карту… приложи её к задней части телефона."
+            scanMessage = "Ожидаю метку… приложи её к задней части телефона."
         } catch (e: Exception) {
             scanMessage = "Не удалось начать сканирование: ${e.localizedMessage ?: "неизвестная ошибка"}"
         }
@@ -171,18 +248,19 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         val uid = tag.id?.joinToString("") { "%02X".format(it) } ?: ""
         val technologies = tag.techList?.joinToString(", ") { it.substringAfterLast('.') }.orEmpty()
         val ndefText = readNdef(tag)
-        val record = ScanRecord(
-            title = "NFC-карта",
-            uid = uid,
-            technologies = technologies.ifBlank { "не определены" },
-            ndef = ndefText
-        )
         runOnUiThread {
+            val old = records.firstOrNull { it.uid == uid && it.technologies == technologies }
+            val record = ScanRecord(
+                title = old?.title ?: "NFC-карта",
+                uid = uid,
+                technologies = technologies.ifBlank { "не определены" },
+                ndef = ndefText
+            )
             lastScan = record
             records.removeAll { it.uid == record.uid && it.technologies == record.technologies }
             records.add(record)
             saveRecords()
-            scanMessage = "Карта обнаружена. Данные сохранены локально."
+            scanMessage = "Метка обнаружена. Проверь сведения и задай ей имя."
             scanning = false
             try { nfcAdapter?.disableReaderMode(this) } catch (_: Exception) {}
         }
@@ -201,8 +279,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     "NDEF-сообщение отсутствует"
                 } else {
                     message.records.joinToString(" | ") { record ->
-                        val payload = record.payload
-                        payload.toString(Charsets.UTF_8).take(160).ifBlank { "пустая запись" }
+                        record.payload.toString(Charsets.UTF_8).take(160).ifBlank { "пустая запись" }
                     }
                 }
             }
@@ -226,6 +303,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 ))
             }
             lastScan = records.lastOrNull()
+            selectedRecord = records.lastOrNull()
         } catch (_: Exception) {}
     }
 
@@ -248,5 +326,4 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         stopScan()
         super.onPause()
     }
-
 }
