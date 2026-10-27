@@ -249,7 +249,4 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         super.onPause()
     }
 
-    override fun onTagDiscovered(tag: Tag?) {
-        if (tag != null) onTagDiscovered(tag)
-    }
 }
